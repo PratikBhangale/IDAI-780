@@ -1,0 +1,36 @@
+# Exclude trained models
+*.pt
+
+# Exclude dataset directory
+Segmentation/kaggle_3m/
+
+# Exclude environment variables file with API keys
+.env
+
+# Python-related files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# VS Code
+.vscode/

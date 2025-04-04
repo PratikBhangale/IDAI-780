@@ -35,8 +35,8 @@ This project implements an advanced AI system for medical image segmentation and
 
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/medical-imaging-ai.git
-   cd medical-imaging-ai
+   git clone https://github.com/PratikBhangale/IDAI-780.git
+   cd IDAI-780
    ```
 
 2. Create and activate a conda environment:

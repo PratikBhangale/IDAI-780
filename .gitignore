@@ -1,6 +1,18 @@
 # Exclude trained models
 *.pt
 
+# Exclude Knowledge Distillation directories
+Knowledge_Distillation/checkpoints/
+Knowledge_Distillation/distilled_models/
+Knowledge_Distillation/distilled_models/**
+@Knowledge_Distillation/distilled_models
+
+# Knowledge Distillation directories
+Knowledge_Distillation/distilled_models/
+Knowledge_Distillation/distilled_models/**
+Knowledge_Distillation/checkpoints/
+*.safetensors
+
 # Exclude dataset directory
 Segmentation/kaggle_3m/
 

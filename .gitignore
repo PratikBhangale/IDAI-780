@@ -1,5 +1,6 @@
 # Exclude trained models
 *.pt
+*.pkl
 
 # Exclude Knowledge Distillation directories
 Knowledge_Distillation/checkpoints/

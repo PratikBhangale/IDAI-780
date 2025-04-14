@@ -1,8 +1,0 @@
-{
-    "exclude": [
-        "S:\\Projects\\Capstone\\beta_1\\Dataset",
-        "S:\\Projects\\Capstone\\beta_1\\Dataset\\train",
-        "S:\\Projects\\Capstone\\beta_1\\Dataset\\valid",
-        // Add more directories as needed
-    ]
-}

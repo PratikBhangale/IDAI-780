@@ -1,5 +1,6 @@
 from typing import Annotated, TypedDict, Literal
-
+from typing import Dict, Any
+import aiohttp
 from langgraph.prebuilt import ToolNode
 from langchain_core.tools import tool, StructuredTool
 from langgraph.graph import START, StateGraph
@@ -11,6 +12,12 @@ from langchain_astradb import AstraDBVectorStore
 from langchain_openai import OpenAIEmbeddings
 from dotenv import load_dotenv
 from langchain_tavily import TavilySearch
+from typing import Annotated, TypedDict, Literal, Optional, List
+import base64
+from langchain_core.messages import HumanMessage
+import io
+import sys
+from contextlib import redirect_stdout
 
 
 
@@ -38,14 +45,40 @@ search = TavilySearch(
     # exclude_domains=None
 )
 
+
 @tool
-def get_weather(location: str):
-    """Call to get the current weather."""
-    # A simplified weather response based on location
-    if location.lower() in ["sf", "san francisco"]:
-        return "It's 60 degrees and foggy."
-    else:
-        return "It's 90 degrees and sunny."
+def python_repl(code: str) -> str:
+    """
+    Execute Python code in a secure environment and return the result.
+    
+    Args:
+        code (str): Python code to execute
+        
+    Returns:
+        str: The output or result of the executed code
+    """
+    try:
+        # Create a string buffer to capture stdout
+        
+        # Execute code and capture output
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            # Execute the code - use exec for statements, eval for expressions
+            try:
+                # First try to evaluate as an expression
+                result = eval(code)
+                if result is not None:
+                    print(repr(result))
+            except SyntaxError:
+                # If it's not an expression, execute as statements
+                exec(code)
+        
+        return buffer.getvalue() or "Code executed successfully with no output."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
+
 
 @tool
 def query_knowledge_base(query: str):
@@ -64,7 +97,7 @@ def query_knowledge_base(query: str):
     )
     
     # Perform the similarity search
-    results = vector_store.similarity_search(query, k=3)
+    results = vector_store.similarity_search(query, k=7)
     
     # Format and return the search results
     if results:
@@ -74,12 +107,13 @@ def query_knowledge_base(query: str):
         return "I couldn't find any relevant information in the knowledge base."
 
 # List of tools that will be accessible to the graph via the ToolNode
-tools = [get_weather, query_knowledge_base, search]
+tools = [query_knowledge_base, search, python_repl]
 tool_node = ToolNode(tools)
 
 # This is the default state same as "MessageState" TypedDict but allows us accessibility to custom keys
 class GraphsState(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
+    images: Optional[List[str]]  # Base64 encoded image data
     # Custom keys for additional data can be added here such as - conversation_id: str
 
 graph = StateGraph(GraphsState)
@@ -92,18 +126,45 @@ def should_continue(state: GraphsState) -> Literal["tools", "__end__"]:
         return "tools"  # Continue to tool execution
     return "__end__"  # End the conversation if no tool is needed
 
-# Core invocation of the model
+# Updated model invocation function to handle images
 def _call_model(state: GraphsState):
     messages = state["messages"]
+    images = state.get("images", [])
+    
+    # Create a multimodal model
     llm = ChatOpenAI(
-        model="gpt-4o-mini",
-        temperature=0.7,
+        model="gpt-4o",  # Change to GPT-4o which supports vision capabilities
+        temperature=0.2,
         streaming=True,
-        # specifically for OpenAI we have to set parallel tool call to false
-        # because of st primitively visually rendering the tool results
     ).bind_tools(tools, parallel_tool_calls=False)
+    
+    # If there are images, modify the last user message to include the image
+    if images and len(images) > 0:
+        # Find the last human message
+        for i in range(len(messages) - 1, -1, -1):
+            if isinstance(messages[i], HumanMessage):
+                # Create a new message with image content
+                content = [
+                    {"type": "text", "text": messages[i].content}
+                ]
+                
+                # Add each image as content
+                for image_data in images:
+                    content.append({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{image_data}"
+                        }
+                    })
+                
+                # Replace the message with the multimodal version
+                messages[i] = HumanMessage(content=content)
+                break
+    
     response = llm.invoke(messages)
-    return {"messages": [response]}  # add the response to the messages using LangGraph reducer paradigm
+    # Clear images after they've been processed
+    return {"messages": [response], "images": []}
+
 
 # Define the structure (nodes and directional edges between nodes) of the graph
 graph.add_node("tools", tool_node)
@@ -121,8 +182,17 @@ graph.add_edge("tools", "modelNode")
 graph_runnable = graph.compile()
 
 
-# Function to invoke the graph with messages and callbacks
-def invoke_our_graph(st_messages, callables):
-    if not isinstance(callables, list):
+# Updated invoke function to handle images
+def invoke_our_graph(st_messages, images=None, callables=None):
+    if callables and not isinstance(callables, list):
         raise TypeError("callables must be a list")
-    return graph_runnable.invoke({"messages": st_messages}, config={"callbacks": callables})
+    
+    initial_state = {"messages": st_messages}
+    if images:
+        initial_state["images"] = images
+        
+    config = {}
+    if callables:
+        config["callbacks"] = callables
+        
+    return graph_runnable.invoke(initial_state, config=config)

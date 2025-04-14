@@ -16,6 +16,7 @@ from torchvision import transforms
 from torchvision import transforms as T
 from torchvision.transforms import functional as TF
 import random
+import pickle
 
 # Set random seeds for reproducibility
 random.seed(42)
@@ -240,6 +241,14 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             torch.save(model.state_dict(), best_model_path)
+            # Save the full model
+            torch.save(model, f'best_{model_name}_full.pt')
+            # Save using TorchScript for deployment
+            scripted_model = torch.jit.script(model)
+            scripted_model.save(f'best_{model_name}_scripted.pt')
+            # Save as pickle file
+            with open(f'best_{model_name}_model.pkl', 'wb') as f:
+                pickle.dump(model, f)
             print(f"Saved best model with validation loss: {best_val_loss:.4f}")
             patient_counter = 0
         else:

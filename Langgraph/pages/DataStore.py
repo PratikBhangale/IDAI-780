@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from langchain_community.embeddings import OllamaEmbeddings
 from langchain_astradb import AstraDBVectorStore
 from langchain_openai import OpenAIEmbeddings
+from io import BytesIO
 
 
 # Load environment variables
@@ -39,11 +40,10 @@ def vector_embedding(uploaded_files):
 
     docs = []
     for uploaded_file in uploaded_files:
-        # Save the uploaded file to disk
-        with open(os.path.join("uploaded_docs", uploaded_file.name), "wb") as f:
-            f.write(uploaded_file.getbuffer())
-        # Load PDF document
-        loader = PyPDFLoader(os.path.join("uploaded_docs", uploaded_file.name))
+        # Create a BytesIO object from the uploaded file
+        pdf_file_obj = BytesIO(uploaded_file.getvalue())
+        # Load PDF document directly from BytesIO
+        loader = PyPDFLoader(pdf_file_obj)
         docs.extend(loader.load())
     
     # Split documents into chunks

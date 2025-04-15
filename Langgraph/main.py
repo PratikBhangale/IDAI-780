@@ -182,12 +182,17 @@ if uploaded_image:
     # Convert image to base64
     img = Image.open(uploaded_image)
     
+
+
     # Convert RGBA to RGB if necessary
     if img.mode == 'RGBA':
         background = Image.new('RGB', img.size, (255, 255, 255))
         background.paste(img, mask=img.split()[3])
         img = background
-    
+
+    # Resize image to 256x256
+    img = img.resize((256, 256), Image.LANCZOS)  # LANCZOS provides high-quality downsampling
+
     buffered = BytesIO()
     img.save(buffered, format="JPEG")
     img_str = base64.b64encode(buffered.getvalue()).decode()

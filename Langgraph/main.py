@@ -218,17 +218,18 @@ if uploaded_image:
             segmentation_image_bytes = base64.b64decode(result["segmentation_image"])
             segmentation_image = Image.open(io.BytesIO(segmentation_image_bytes))
             
-            # Get descriptions of both images using OpenAI
-            original_image_description = get_image_description(
-                st.session_state.image_base64,
-                "Describe this brain scan image in detail, focusing on any visible features or abnormalities:"
-            )
-            
-            segmentation_image_description = get_image_description(
-                result["segmentation_image"],
-                "Describe this segmentation map image in detail, focusing on highlighted areas and what they may indicate:"
-            )
-            
+            with st.spinner('Generating image descriptions...'):
+                # Get descriptions of both images using OpenAI
+                original_image_description = get_image_description(
+                    st.session_state.image_base64,
+                    "Describe this brain scan image in detail, focusing on any visible features or abnormalities:"
+                )
+                
+                segmentation_image_description = get_image_description(
+                    result["segmentation_image"],
+                    "Describe this segmentation map image in detail, focusing on highlighted areas and what they may indicate:"
+                )
+                
             # Create the message content with images and descriptions
             ai_message_content = f"""
             ## Analysis Results:

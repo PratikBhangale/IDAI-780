@@ -11,9 +11,18 @@ from typing import Dict, Any
 
 from graph import invoke_our_graph
 import asyncio
+from openai import OpenAI
+from langsmith import Client
+from langsmith.wrappers import wrap_openai
+import openai
 from st_callable_util_improved import get_streamlit_cb  # Utility function to get a Streamlit callback handler with context
 
 load_dotenv()
+
+
+
+
+
 
 # Set up OpenAI API key from environment variable
 openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -52,11 +61,7 @@ st.title("LangGraph LLM Chatbot")
 # Create the Sidebar
 sidebar = st.sidebar
 
-# Image upload section
-uploaded_image = sidebar.file_uploader(
-    "Upload an image for analysis", 
-    type=["png", "jpg", "jpeg", "tif", "tiff"]
-)
+
 
 # Creating a Session State array to store and show a copy of the conversation to the user.
 if "messages" not in st.session_state:
@@ -66,81 +71,44 @@ if "messages" not in st.session_state:
 if "images" not in st.session_state:
     st.session_state["images"] = []
 
-
 # Initialize image in session state
 if "image_base64" not in st.session_state:
     st.session_state["image_base64"] = None
 
-
-
-# Initialize the current_document boolean variable
-current_document = False
-
-if uploaded_image:current_document = True
-
-# Process uploaded image
-if current_document:
-    # Convert image to base64
-    img = Image.open(uploaded_image)
+# Initialize image in session state
+if "segmentation_base64" not in st.session_state:
+    st.session_state["segmentation_base64"] = None
     
-    # Convert RGBA to RGB if necessary
-    if img.mode == 'RGBA':
-        background = Image.new('RGB', img.size, (255, 255, 255))
-        background.paste(img, mask=img.split()[3])
-        img = background
-    
-    buffered = BytesIO()
-    img.save(buffered, format="JPEG")
-    img_str = base64.b64encode(buffered.getvalue()).decode()
-    
-    # Store in session state
-    st.session_state.image_base64 = img_str
-    st.sidebar.success("Image uploaded successfully!")
-    
-    # Display currently loaded image
-    if current_document:
-        try:
-            # Create event loop and run the async function
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            result = loop.run_until_complete(segment_tumor(st.session_state.image_base64))
-            
-            # Convert the segmentation image from base64 to displayable format
-            segmentation_image_bytes = base64.b64decode(result["segmentation_image"])
-            segmentation_image = Image.open(io.BytesIO(segmentation_image_bytes))
-            
-            # Create the message content with images directly displayed here
-            with st.chat_message("AI"):
-                st.write(f"""
-                Analysis Results:
-                - Tumor Detection: {result['tumor_detection']}
-                
-                I've analyzed the image and generated a segmentation map showing the areas 
-                of interest. The segmentation is displayed below, where the highlighted 
-                regions indicate potential tumor locations.
-                """)
-                
-                # Display original and segmented images side by side
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.image(img, caption="Original Image")
-                with col2:
-                    st.image(segmentation_image, caption="Segmentation Result")
-            
-            # Just add a simple text message to session state (no image data)
-            # This is just to record that the analysis happened
-            # st.session_state["messages"].append(
-            #     AIMessage(content="Image analysis completed. You can ask questions about the image now.")
-            # )
-            
-            current_document = False
-        except aiohttp.ClientError as e:
-            error_message = f"Error during image analysis: {str(e)}"
-            st.session_state["messages"].append(AIMessage(content=error_message))
-            with st.chat_message("AI"):
-                st.write(error_message)
-            current_document = False
+# Initialize processed images tracking set
+if "processed_images" not in st.session_state:
+    st.session_state["processed_images"] = set()
 
+# Function to get image description from OpenAI
+def get_image_description(image_base64, prompt="Describe this medical image in detail:"):
+    """
+    Get a description of the image using OpenAI's GPT-4o model.
+    
+    Args:
+        image_base64 (str): Base64-encoded image string
+        prompt (str): The prompt to send to the model
+        
+    Returns:
+        str: The generated description
+    """
+    client = OpenAI()
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}}
+                ]
+            }
+        ]
+    )
+    return response.choices[0].message.content
 
 
 
@@ -151,8 +119,8 @@ if clear_chat:
     st.session_state["messages"] = []
     st.session_state["images"] = []
     st.session_state["image_base64"] = None
-    if "segmentation_data" in st.session_state:
-        st.session_state["segmentation_data"] = []
+    st.session_state["segmentation_base64"] = None
+    st.session_state["processed_images"] = set()  # Clear the processed images set
     st.toast('Conversation Deleted', icon='⚙️')
 
 
@@ -178,6 +146,19 @@ def encode_image(image_file):
 
 
 
+
+# Image upload section
+uploaded_image = sidebar.file_uploader(
+    "Upload an image for analysis", 
+    type=["png", "jpg", "jpeg", "tif", "tiff"]
+)
+
+
+
+
+
+
+
 # Display the chat messages in the Streamlit app
 for message in st.session_state.messages:
     if isinstance(message, AIMessage):
@@ -186,6 +167,124 @@ for message in st.session_state.messages:
     elif isinstance(message, HumanMessage):
         with st.chat_message("Human"):
             st.write(message.content)
+
+
+
+
+
+
+
+
+# Process uploaded image
+if uploaded_image:
+
+    
+    # Convert image to base64
+    img = Image.open(uploaded_image)
+    
+    # Convert RGBA to RGB if necessary
+    if img.mode == 'RGBA':
+        background = Image.new('RGB', img.size, (255, 255, 255))
+        background.paste(img, mask=img.split()[3])
+        img = background
+    
+    buffered = BytesIO()
+    img.save(buffered, format="JPEG")
+    img_str = base64.b64encode(buffered.getvalue()).decode()
+    
+    # Store in session state
+    st.session_state.image_base64 = img_str
+    st.sidebar.success("Image uploaded successfully!")
+    
+    # Create a unique identifier for this image
+    image_id = hash(st.session_state.image_base64)
+    
+    # Only process if we haven't seen this image before
+    if image_id not in st.session_state.processed_images:
+        try:
+            # Create event loop and run the async function
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            result = loop.run_until_complete(segment_tumor(st.session_state.image_base64))
+            
+            st.session_state.segmentation_base64 = result["segmentation_image"]
+
+            # Convert the segmentation image from base64 to displayable format
+            segmentation_image_bytes = base64.b64decode(result["segmentation_image"])
+            segmentation_image = Image.open(io.BytesIO(segmentation_image_bytes))
+            
+            # Get descriptions of both images using OpenAI
+            original_image_description = get_image_description(
+                st.session_state.image_base64,
+                "Describe this brain scan image in detail, focusing on any visible features or abnormalities:"
+            )
+            
+            segmentation_image_description = get_image_description(
+                result["segmentation_image"],
+                "Describe this segmentation map image in detail, focusing on highlighted areas and what they may indicate:"
+            )
+            
+            # Create the message content with images and descriptions
+            ai_message_content = f"""
+            ## Analysis Results:
+            - **Tumor Detection**: {result['tumor_detection']}
+            
+            I've analyzed the brain scan and generated a segmentation map showing potential areas of interest.
+            
+            ### Original Brain Scan
+            {original_image_description}
+            
+            ### Segmentation Map
+            {segmentation_image_description}
+            """
+            
+            # Add the message to chat history
+            st.session_state.messages.append(AIMessage(content=ai_message_content))
+            
+            # Create the message content with images directly displayed here
+            with st.chat_message("AI"):
+                st.write(ai_message_content)
+                
+                # Display original and segmented images side by side
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.image(img, caption="Original Brain Scan")
+                with col2:
+                    st.image(segmentation_image, caption="Segmentation Result")
+            
+            # Mark this image as processed
+            st.session_state.processed_images.add(image_id)
+            
+
+        except aiohttp.ClientError as e:
+            error_message = f"Error during image analysis: {str(e)}"
+            st.session_state["messages"].append(AIMessage(content=error_message))
+            with st.chat_message("AI"):
+                st.write(error_message)
+ 
+
+
+
+
+
+
+
+
+
+
+
+# # Display the chat messages in the Streamlit app
+# for message in st.session_state.messages:
+#     if isinstance(message, AIMessage):
+#         with st.chat_message("AI"):
+#             st.write(message.content)
+#     elif isinstance(message, HumanMessage):
+#         with st.chat_message("Human"):
+#             st.write(message.content)
+
+
+
+
 
 
 

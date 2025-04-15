@@ -1,0 +1,2 @@
+# This file ensures that the models directory is included in version control
+# even if it's empty. The directory is needed for the application to work correctly.

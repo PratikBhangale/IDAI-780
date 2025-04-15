@@ -18,6 +18,8 @@ from langchain_core.messages import HumanMessage
 import io
 import sys
 from contextlib import redirect_stdout
+from openai import OpenAI
+from langchain_core.messages import AIMessage
 
 
 
@@ -76,6 +78,7 @@ def python_repl(code: str) -> str:
         return buffer.getvalue() or "Code executed successfully with no output."
     except Exception as e:
         return f"Error: {str(e)}"
+
 
 
 

@@ -136,7 +136,7 @@ def _call_model(state: GraphsState):
     
     # Create a multimodal model
     llm = ChatOpenAI(
-        model="gpt-4o",  # Change to GPT-4o which supports vision capabilities
+        model="gpt-4.1-mini-2025-04-14",  # Change to GPT-4o which supports vision capabilities
         temperature=0.2,
         streaming=True,
     ).bind_tools(tools, parallel_tool_calls=False)

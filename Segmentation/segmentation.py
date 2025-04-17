@@ -141,23 +141,38 @@ def train_val_test_split(images, masks, val_ratio=0.15, test_ratio=0.15):
     
     return (train_images, train_masks), (val_images, val_masks), (test_images, test_masks)
 
-# Define loss functions
-def dice_loss(pred, target):
-    smooth = 1.0
-    
+
+def dice_loss(pred, target, smooth=1.):
     pred_flat = pred.view(-1)
     target_flat = target.view(-1)
-    
     intersection = (pred_flat * target_flat).sum()
     dice_score = (2. * intersection + smooth) / (pred_flat.sum() + target_flat.sum() + smooth)
-    
     return 1 - dice_score
 
-def combined_loss(pred, target, bce_weight=0.5):
-    bce = F.binary_cross_entropy(pred, target)
-    dice = dice_loss(pred, target)
+def focal_loss(pred, target, gamma=2.0, eps=1e-7):
+    """
+    Binary Focal Loss for segmentation.
+    Args:
+        pred: probabilities after sigmoid (not logits!)
+        target: ground truth labels
+        gamma: focusing parameter
+    """
+    # For numerical stability
+    pred = pred.clamp(min=eps, max=1-eps)
+
+    loss_pos = -target * ((1 - pred) ** gamma) * torch.log(pred)
+    loss_neg = -(1 - target) * (pred ** gamma) * torch.log(1 - pred)
     
-    return bce_weight * bce + (1 - bce_weight) * dice
+    return (loss_pos + loss_neg).mean()
+
+def combined_loss(pred, target):
+    # Pred should be after sigmoid for dice and focal; BCE expects raw logits or probs depending on which you use.
+    
+    bce = F.binary_cross_entropy(pred, target)
+    dsc = dice_loss(pred, target)
+    fl  = focal_loss(pred, target)
+
+    return 0.2*bce + 0.4*dsc + 0.4*fl
 
 # Training function
 def train_model(model, train_loader, val_loader, criterion, optimizer, 
@@ -234,21 +249,23 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
         
         # Print progress
         print(f"Epoch {epoch+1}/{num_epochs} - "
-              f"Train Loss: {avg_train_loss:.4f}, Train Dice: {avg_train_dice:.4f}, "
-              f"Val Loss: {avg_val_loss:.4f}, Val Dice: {avg_val_dice:.4f}")
+              f"Train Loss: {avg_train_loss:.4f}, Train Dice Loss: {avg_train_dice:.4f}, "
+              f"Val Loss: {avg_val_loss:.4f}, Val Dice Loss: {avg_val_dice:.4f}")
         
         # Save best model and check for early stopping
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             torch.save(model.state_dict(), best_model_path)
-            # Save the full model
-            torch.save(model, f'best_{model_name}_full.pt')
+            # # Save the full model
+            # torch.save(model, f'best_{model_name}_full.pt')
+
             # Save using TorchScript for deployment
             scripted_model = torch.jit.script(model)
             scripted_model.save(f'best_{model_name}_scripted.pt')
+
             # Save as pickle file
-            with open(f'best_{model_name}_model.pkl', 'wb') as f:
-                pickle.dump(model, f)
+            # with open(f'best_{model_name}_model.pkl', 'wb') as f:
+            #     pickle.dump(model, f)
             print(f"Saved best model with validation loss: {best_val_loss:.4f}")
             patient_counter = 0
         else:
@@ -324,7 +341,7 @@ def evaluate_model(model, test_loader, device='cuda'):
     return avg_test_dice
 
 # Main execution pipeline
-def run_segmentation_pipeline(model, base_dir="kaggle_3m", model_name="unet", batch_size=8, patience=10):
+def run_segmentation_pipeline(model, base_dir="kaggle_3m", model_name="unet", batch_size=8, patience=10, epochs=100):
     """
     Run the complete segmentation pipeline with a custom model.
     
@@ -367,7 +384,7 @@ def run_segmentation_pipeline(model, base_dir="kaggle_3m", model_name="unet", ba
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=patience, factor=0.5)
     
     # Define loss function (50% BCE + 50% Dice)
-    criterion = lambda pred, target: combined_loss(pred, target, bce_weight=0.5)
+    criterion = lambda pred, target: combined_loss(pred, target)
     
     # Train model
     model, history = train_model(
@@ -377,7 +394,7 @@ def run_segmentation_pipeline(model, base_dir="kaggle_3m", model_name="unet", ba
         criterion=criterion,
         optimizer=optimizer,
         scheduler=scheduler,
-        num_epochs=100,
+        num_epochs=epochs,
         patience=patience,
         device=device,
         model_name=model_name
@@ -410,6 +427,11 @@ def run_segmentation_pipeline(model, base_dir="kaggle_3m", model_name="unet", ba
     visualize_results(model, test_loader, num_samples=5, device=device, model_name=model_name)
     
     return model, test_dice
+
+
+
+
+
 
 if __name__ == "__main__":
     # Example usage - you need to define your own model

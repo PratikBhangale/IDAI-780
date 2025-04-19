@@ -5,7 +5,6 @@ from langgraph.prebuilt import ToolNode
 from langchain_core.tools import tool, StructuredTool
 from langgraph.graph import START, StateGraph
 from langgraph.graph.message import AnyMessage, add_messages
-from langchain_community.utilities import DuckDuckGoSearchAPIWrapper
 from langchain_openai import ChatOpenAI
 import os
 from langchain_astradb import AstraDBVectorStore

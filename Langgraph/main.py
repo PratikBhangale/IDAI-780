@@ -15,11 +15,12 @@ from openai import OpenAI
 from langsmith import Client
 from langsmith.wrappers import wrap_openai
 import openai
-from st_callable_util_improved import get_streamlit_cb  # Utility function to get a Streamlit callback handler with context
+from st_callable_util_improved import get_streamlit_cb 
+import numpy as np
+import cv2
+
 
 load_dotenv()
-
-
 
 
 
@@ -31,13 +32,13 @@ if not openai_api_key:
 
 
 # Tumor Segmentation API URL
-async def segment_tumor(base64_image: str, api_url: str = "http://localhost:8000") -> Dict[str, Any]:
+async def segment_tumor(base64_image: str, api_url: str = "https://pratiks-bhangale--tumor-segmentation-api.modal.run") -> Dict[str, Any]:
     """
     Send a base64-encoded image to the tumor segmentation API and get the results.
     
     Args:
         base64_image (str): Base64-encoded image string
-        api_url (str): API endpoint URL (default: http://localhost:8000)
+        api_url (str): API endpoint URL (default: https://pratiks-bhangale--tumor-segmentation-api.modal.run)
         
     Returns:
         dict: Dictionary containing:
@@ -56,7 +57,7 @@ async def segment_tumor(base64_image: str, api_url: str = "http://localhost:8000
 
 # Set the title of the Streamlit app
 st.set_page_config(layout="wide")#, page_title="Llama 3 Model Document Q&A"
-st.title("LangGraph LLM Chatbot")
+st.title("NeuroSight AI")
 
 # Create the Sidebar
 sidebar = st.sidebar
@@ -227,31 +228,32 @@ if uploaded_image:
             # Convert the segmentation image from base64 to displayable format
             segmentation_image_bytes = base64.b64decode(result["segmentation_image"])
             segmentation_image = Image.open(io.BytesIO(segmentation_image_bytes))
-            
+
+            # Convert PIL images to numpy arrays for processing
+            original_img_np = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2GRAY)
+            original_img_np = cv2.cvtColor(original_img_np, cv2.COLOR_GRAY2RGB)  # Convert back to 3 channels for overlay
+            segmentation_np = np.array(segmentation_image)
+
+            # Create a colored mask (red overlay)
+            colored_mask = np.zeros_like(original_img_np)
+            colored_mask[segmentation_np > 0] = [255, 0, 0]  # Red color for the segmentation
+
+            # Create the overlay
+            overlay_img = cv2.addWeighted(original_img_np, 0.7, colored_mask, 0.3, 0)
+
+            # Convert overlay image from numpy array to base64
+            overlay_img_pil = Image.fromarray(overlay_img)
+            overlay_buffer = BytesIO()
+            overlay_base64 = base64.b64encode(overlay_buffer.getvalue()).decode()
+
             with st.spinner('Generating image descriptions...'):
                 # Get descriptions of both images using OpenAI
                 original_image_description = get_image_description(
                     st.session_state.image_base64,
-                    second_image_base64=result["segmentation_image"],
+                    second_image_base64=overlay_base64,
                     prompt=prompt1
                 )
                 
-                # segmentation_image_description = get_image_description(
-                #     result["segmentation_image"],
-                #     prompt1
-                # )
-                
-            # # Create the message content with images and descriptions
-            # ai_message_content = f"""
-            # ## Analysis Results:
-            # - **Tumor Detection**: {result['tumor_detection']}
-            
-            # I've analyzed the brain scan and generated a segmentation map showing potential areas of interest.
-            
-            # ### Brain Scan
-            # {original_image_description}
-
-            # """
             
             # Add the message to chat history
             st.session_state.messages.append(AIMessage(content=original_image_description))
@@ -265,7 +267,7 @@ if uploaded_image:
                 with col1:
                     st.image(img, caption="Original Brain Scan")
                 with col2:
-                    st.image(segmentation_image, caption="Segmentation Result")
+                    st.image(overlay_img, caption="Segmentation Overlay")
             
             # Mark this image as processed
             st.session_state.processed_images.add(image_id)
